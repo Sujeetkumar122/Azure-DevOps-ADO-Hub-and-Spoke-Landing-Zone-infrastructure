@@ -1,0 +1,128 @@
+parameters:
+  - name: targetEnvironment
+    displayName: Terraform environment
+    type: string
+    default: preprod
+    values:
+      - preprod
+      - prod
+  - name: runApply
+    displayName: Apply the reviewed Terraform plan
+    type: boolean
+    default: false
+
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: terraform-secrets
+  - name: azureServiceConnection
+    value: REPLACE_WITH_AZURE_SERVICE_CONNECTION
+  - name: tfStateResourceGroup
+    value: REPLACE_WITH_STATE_RESOURCE_GROUP
+  - name: tfStateStorageAccount
+    value: REPLACE_WITH_STATE_STORAGE_ACCOUNT
+  - name: tfStateContainer
+    value: tfstate
+  - name: terraformVersion
+    value: 1.9.8
+  - name: environmentPath
+    value: $(Build.SourcesDirectory)/environment/${{ parameters.targetEnvironment }}
+
+stages:
+  - stage: Plan
+    displayName: Validate and plan (${{ parameters.targetEnvironment }})
+    jobs:
+      - job: TerraformPlan
+        displayName: Terraform validate and plan
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - task: TerraformInstaller@1
+            displayName: Install Terraform
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - bash: terraform fmt -check -recursive
+            displayName: Check Terraform formatting
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - task: AzureCLI@2
+            displayName: Initialize, validate, and create plan
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: $(environmentPath)
+              inlineScript: |
+                set -euo pipefail
+                terraform init -input=false \
+                  -backend-config="resource_group_name=$(tfStateResourceGroup)" \
+                  -backend-config="storage_account_name=$(tfStateStorageAccount)" \
+                  -backend-config="container_name=$(tfStateContainer)" \
+                  -backend-config="key=${{ parameters.targetEnvironment }}.terraform.tfstate" \
+                  -backend-config="use_azuread_auth=true" \
+                  -backend-config="use_cli=true"
+                terraform validate
+                mkdir -p "$(Build.ArtifactStagingDirectory)/terraform-plan"
+                terraform plan -input=false -out="$(Build.ArtifactStagingDirectory)/terraform-plan/terraform.tfplan"
+            env:
+              ARM_USE_CLI: true
+              TF_VAR_vm_admin_password: $(TF_VAR_vm_admin_password)
+
+          - publish: $(Build.ArtifactStagingDirectory)/terraform-plan
+            artifact: terraform-plan
+            displayName: Publish reviewed Terraform plan
+
+  - stage: Apply
+    displayName: Apply (${{ parameters.targetEnvironment }})
+    dependsOn: Plan
+    condition: and(succeeded(), eq(${{ parameters.runApply }}, true))
+    jobs:
+      - deployment: TerraformApply
+        displayName: Apply reviewed Terraform plan
+        environment: terraform-${{ parameters.targetEnvironment }}
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: TerraformInstaller@1
+                  displayName: Install Terraform
+                  inputs:
+                    terraformVersion: $(terraformVersion)
+
+                - task: DownloadPipelineArtifact@2
+                  displayName: Download reviewed Terraform plan
+                  inputs:
+                    artifact: terraform-plan
+                    path: $(Pipeline.Workspace)/terraform-plan
+
+                - task: AzureCLI@2
+                  displayName: Apply Terraform plan
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    workingDirectory: $(environmentPath)
+                    inlineScript: |
+                      set -euo pipefail
+                      terraform init -input=false \
+                        -backend-config="resource_group_name=$(tfStateResourceGroup)" \
+                        -backend-config="storage_account_name=$(tfStateStorageAccount)" \
+                        -backend-config="container_name=$(tfStateContainer)" \
+                        -backend-config="key=${{ parameters.targetEnvironment }}.terraform.tfstate" \
+                        -backend-config="use_azuread_auth=true" \
+                        -backend-config="use_cli=true"
+                      terraform apply -input=false -auto-approve \
+                        "$(Pipeline.Workspace)/terraform-plan/terraform.tfplan"
+                  env:
+                    ARM_USE_CLI: true
+                    TF_VAR_vm_admin_password: $(TF_VAR_vm_admin_password)

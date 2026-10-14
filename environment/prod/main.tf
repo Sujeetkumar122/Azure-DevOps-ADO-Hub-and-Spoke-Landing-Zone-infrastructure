@@ -136,7 +136,7 @@ module "linux_virtual_machine" {
       size                            = v.size
       zone                            = v.zone
       admin_username                  = v.admin_username
-      admin_password                  = v.admin_password
+      admin_password                  = var.vm_admin_password
       disable_password_authentication = v.disable_password_authentication
       tags                            = v.tags
     }

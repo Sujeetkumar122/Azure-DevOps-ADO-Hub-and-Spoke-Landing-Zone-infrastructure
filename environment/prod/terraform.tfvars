@@ -211,7 +211,6 @@ linux_virtual_machines = {
     subnet_name                     = "snet-spoke-workload"
     size                            = "Standard_D2s_v4"
     admin_username                  = "azureadmin"
-    admin_password                  = "P@ssw0rd12345!"
     disable_password_authentication = false
   }
 }

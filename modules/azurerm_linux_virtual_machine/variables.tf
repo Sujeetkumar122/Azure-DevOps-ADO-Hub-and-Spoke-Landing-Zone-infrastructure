@@ -7,7 +7,7 @@ variable "linux_virtual_machines" {
     size                            = optional(string, "Standard_D2s_v4")
     zone                            = optional(string)
     admin_username                  = optional(string, "azureadmin")
-    admin_password                  = optional(string, "P@ssw0rd12345!")
+    admin_password                  = string
     disable_password_authentication = optional(bool, false)
     tags                            = optional(map(string))
   }))

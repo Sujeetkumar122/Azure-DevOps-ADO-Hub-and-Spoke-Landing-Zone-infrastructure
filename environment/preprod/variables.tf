@@ -175,10 +175,15 @@ variable "linux_virtual_machines" {
     size                            = optional(string, "Standard_D2s_v4")
     zone                            = optional(string)
     admin_username                  = optional(string, "azureadmin")
-    admin_password                  = optional(string, "P@ssw0rd12345!")
     disable_password_authentication = optional(bool, false)
     tags                            = optional(map(string))
   }))
   description = "Linux Virtual Machines configuration"
   default     = {}
+}
+
+variable "vm_admin_password" {
+  type        = string
+  description = "Admin password for Linux virtual machines; provide it through a secret pipeline variable"
+  sensitive   = true
 }
